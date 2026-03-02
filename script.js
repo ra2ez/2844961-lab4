@@ -1,7 +1,6 @@
 const url = "https://restcountries.com/v3.1/name/";
 
-// splits the neighbourList into smaller lists to make requests easier
-function chunkArray(array, chunkSize) { 
+function chunkArray(array, chunkSize) {
     const chunks = [];
     for (let i = 0; i < array.length; i += chunkSize) {
         chunks.push(array.slice(i, i + chunkSize));
@@ -9,121 +8,94 @@ function chunkArray(array, chunkSize) {
     return chunks;
 }
 
-
-// ensures that DOM Manipulation code only runs when the DOM is ready
-document.addEventListener('DOMContentLoaded', function() { 
-
-    // getting all the DOM elements
-    const button = document.getElementById("submit-button");
+document.addEventListener('DOMContentLoaded', function() {
+    // FIXED: Use the required IDs from the lab spec
+    const button = document.getElementById("search-btn"); 
     const countryInput = document.getElementById("country-input");
     const countryInfo = document.getElementById("country-info");
     const borderingCountries = document.getElementById("bordering-countries");
+    const loadingSpinner = document.getElementById("loading-spinner");
+    const errorMessage = document.getElementById("error-message");
 
-    // once the submit button is clicked
+    // Helper function to toggle visibility
+    function showElement(element) {
+        element.classList.remove('hidden');
+    }
+    function hideElement(element) {
+        element.classList.add('hidden');
+    }
+
     button.addEventListener('click', async function() {
-        const country = countryInput.value.trim();  // getting country that was typed in
+        const country = countryInput.value.trim();
 
-        if (country === null || country === "" || !/^[a-zA-Z\s]+$/.test(country)) {   //ensures that user types in a country
-            alert("Please enter a country");
+        // Input Validation
+        if (country === "" || !/^[a-zA-Z\s]+$/.test(country)) {
+            // FIXED: Use DOM error element instead of alert
+            errorMessage.textContent = "Please enter a valid country name.";
+            showElement(errorMessage);
             return;
         }
 
-        // resets these elements so that new data can be displayed
+        // Reset UI
+        hideElement(errorMessage);
         countryInfo.innerHTML = "";
         borderingCountries.innerHTML = "";
+        showElement(loadingSpinner); // Show spinner
 
-        async function getData() {  // function to fetch the data about the country from the API
-            try {
-                const response = await fetch(url + country);
-                if (!response.ok) {
-                    if (response.status === 404) {
-                        throw new Error("Country not found");
-                    } else {
-                    throw new Error("Failed to fetch data");
-                    }   
+        try {
+            // 1. Fetch Main Country
+            const response = await fetch(url + country);
+            if (!response.ok) throw new Error("Country not found");
+            
+            const data = await response.json();
+            const mainCountry = data[0];
+
+            // Update Main Info
+            // FIXED: Added toLocaleString() for population
+            countryInfo.innerHTML = `
+                <h2>${mainCountry.name.common}</h2>
+                <img src="${mainCountry.flags.svg}" alt="Flag">
+                <p><strong>Capital:</strong> ${mainCountry.capital ? mainCountry.capital[0] : 'N/A'}</p>
+                <p><strong>Population:</strong> ${mainCountry.population.toLocaleString()}</p>
+                <p><strong>Region:</strong> ${mainCountry.region}</p>
+            `;
+            showElement(countryInfo);
+
+            // 2. Fetch Neighbors
+            const neighbors = mainCountry.borders || [];
+            if (neighbors.length === 0) {
+                borderingCountries.innerHTML = '<p style="grid-column: 1 / -1;">No bordering countries.</p>';
+            } else {
+                // Re-using your smart chunking logic
+                const chunks = chunkArray(neighbors, 5);
+                let neighborHTML = '';
+                
+                for (const chunk of chunks) {
+                    const codes = chunk.join(',');
+                    const res = await fetch(`https://restcountries.com/v3.1/alpha?codes=${codes}`);
+                    const neighborData = await res.json();
+                    
+                    neighborData.forEach(n => {
+                        neighborHTML += `
+                            <div class="border-item">
+                                <img src="${n.flags.svg}" alt="${n.name.common}">
+                                <p>${n.name.common}</p>
+                            </div>
+                        `;
+                    });
                 }
-
-                const data = await response.json();
-                console.log(data);
-                return data;
-            } catch (error) {
-                console.error(error.message);
-                alert(error.message);
-                return null;
+                borderingCountries.innerHTML = neighborHTML;
             }
+            showElement(borderingCountries);
+
+        } catch (error) {
+            errorMessage.textContent = error.message;
+            showElement(errorMessage);
+            hideElement(countryInfo);
+            hideElement(borderingCountries);
+        } finally {
+            // Always hide spinner when done
+            hideElement(loadingSpinner);
         }
-
-        const data = await getData(); // call the function
-
-        if (data != null){
-
-            // retrieving the required data from the response
-            const countryName = data[0].name.common;
-            const countryCapital = data[0].capital[0];
-            const countryPopulation = data[0].population;
-            const countryRegion = data[0].region;
-            const countryFlag = data[0].flags.png;
-            const countryNeighbours = data[0].borders || [];
-
-            // displaying the required data about the country
-            countryInfo.innerHTML = 
-            `<article>
-            <h1>${countryName}</h1>
-            <p>Capital: ${countryCapital}</p>
-            <p>Population: ${countryPopulation}</p>
-            <p>Region: ${countryRegion}</p>
-            <img src="${countryFlag}">
-            </article>`;
-
-            // special case for islands
-            if (countryNeighbours.length === 0){
-                borderingCountries.innerHTML = `<p>No bordering countries</p>`
-            }
-
-            // fetching data for each of the neighbouring countries 
-            async function getNeighbourData(countryNeighbours) { 
-                const chunkSize = 5; // Number of countries to fetch per request
-                const chunks = chunkArray(countryNeighbours, chunkSize);
-
-                try {
-                    const allNeighbours = [];
-                    for (const chunk of chunks) {
-                        const codes = chunk.join(',');
-                        const response = await fetch(`https://restcountries.com/v3.1/alpha?codes=${codes}`);
-                        if (!response.ok) {
-                            throw new Error("Failed to fetch data for neighbouring countries");   
-                        }
-    
-                        const neighbourData = await response.json();
-                        allNeighbours.push(...neighbourData);
-                        console.log(neighbourData);
-                    }   
-                    return allNeighbours;
-                } catch (error) {
-                    console.error(error.message);
-                    throw error;
-                }
-            }
-
-            const neighbourData = await getNeighbourData(countryNeighbours);
-
-            // displaying data of the neighbours
-            if (neighbourData != null) {
-                let neighbourContent = '';
-                for (const neighbour of neighbourData) {
-                    const neighbourName = neighbour.name.common;
-                    const neighbourFlag = neighbour.flags.png;
-                    neighbourContent +=
-                    `<article class="neighbour">
-                    <figure>
-                    <img src="${neighbourFlag}">
-                    <figcaption>${neighbourName}</figcaption>
-                    </figure>
-                    </article> 
-                    `;
-                };
-                borderingCountries.innerHTML += neighbourContent;
-            };
-        };
     });
 });
